@@ -29,45 +29,38 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
 
-// 환경 변수 및 하드코딩 폴백을 안전하게 가져오는 헬퍼 함수
+// 환경 변수 안전 로드
 const getEnv = (key, fallback) => {
   try {
     if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
       return import.meta.env[key];
     }
-  } catch (e) {
-    // 환경 변수를 불러올 수 없는 경우 무시
-  }
+  } catch (e) {}
   return fallback;
 };
 
-// Firebase 설정 (Vercel 환경변수를 우선 적용하고, 없으면 제공해주신 키 사용)
-let firebaseConfig;
-if (typeof __firebase_config !== 'undefined') {
-  firebaseConfig = JSON.parse(__firebase_config);
-} else {
-  firebaseConfig = {
-    apiKey: getEnv('VITE_FIREBASE_API_KEY', "AIzaSyAw_hDTzzOXhbHpzIcZ4f58XYSZDa2u_cE"),
-    authDomain: getEnv('VITE_FIREBASE_AUTH_DOMAIN', "shooting-gear-manger.firebaseapp.com"),
-    projectId: getEnv('VITE_FIREBASE_PROJECT_ID', "shooting-gear-manger"),
-    storageBucket: getEnv('VITE_FIREBASE_STORAGE_BUCKET', "shooting-gear-manger.firebasestorage.app"),
-    messagingSenderId: getEnv('VITE_FIREBASE_MESSAGING_SENDER_ID', "668298898658"),
-    appId: getEnv('VITE_FIREBASE_APP_ID', "1:668298898658:web:69c5f84554775d8f48c2bb"),
-  };
-}
+// Firebase 설정
+const firebaseConfig = {
+  apiKey: getEnv('VITE_FIREBASE_API_KEY', "AIzaSyAw_hDTzzOXhbHpzIcZ4f58XYSZDa2u_cE"),
+  authDomain: getEnv('VITE_FIREBASE_AUTH_DOMAIN', "shooting-gear-manger.firebaseapp.com"),
+  projectId: getEnv('VITE_FIREBASE_PROJECT_ID', "shooting-gear-manger"),
+  storageBucket: getEnv('VITE_FIREBASE_STORAGE_BUCKET', "shooting-gear-manger.firebasestorage.app"),
+  messagingSenderId: getEnv('VITE_FIREBASE_MESSAGING_SENDER_ID', "668298898658"),
+  appId: getEnv('VITE_FIREBASE_APP_ID', "1:668298898658:web:69c5f84554775d8f48c2bb"),
+};
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// 데이터베이스 구조를 위한 고유 ID
-const DB_APP_ID = typeof __app_id !== 'undefined' ? __app_id : "gear-manager-app"; 
+// appId 경로 오류 해결 (슬래시 완전 제거)
+const rawAppId = typeof __app_id !== 'undefined' ? __app_id : "gear-manager-app";
+const sanitizedAppId = String(rawAppId).split('/').filter(Boolean).join('_');
 
 // Cloudinary 설정
 const CLOUDINARY_CLOUD_NAME = getEnv('VITE_CLOUDINARY_CLOUD_NAME', "dwjkpawch");
 const CLOUDINARY_UPLOAD_PRESET = getEnv('VITE_CLOUDINARY_UPLOAD_PRESET', "shooting_gear");
 
-// 카테고리 설정
 const CATEGORIES = [
   { name: '전체', icon: LayoutGrid },
   { name: '카메라바디', icon: Camera },
@@ -82,11 +75,12 @@ const CATEGORIES = [
 const STATUS_OPTIONS = ['대여가능', '사용중', '수리중'];
 
 const formatDate = (date) => {
+  if (!date) return '';
   const d = new Date(date);
+  if (isNaN(d.getTime())) return String(date);
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
 
-// 이미지 압축 유틸리티 함수
 const compressImage = (file) => {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -100,38 +94,24 @@ const compressImage = (file) => {
         const MAX_HEIGHT = 1200;
         let width = img.width;
         let height = img.height;
-
         if (width > height) {
-          if (width > MAX_WIDTH) {
-            height *= MAX_WIDTH / width;
-            width = MAX_WIDTH;
-          }
+          if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
         } else {
-          if (height > MAX_HEIGHT) {
-            width *= MAX_HEIGHT / height;
-            height = MAX_HEIGHT;
-          }
+          if (height > MAX_HEIGHT) { width *= MAX_HEIGHT / height; height = MAX_HEIGHT; }
         }
-        
-        canvas.width = width;
-        canvas.height = height;
+        canvas.width = width; canvas.height = height;
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, width, height);
-        
         canvas.toBlob((blob) => {
-          const compressedFile = new File([blob], file.name.replace(/\.[^/.]+$/, "") + ".jpeg", {
-            type: 'image/jpeg',
-            lastModified: Date.now(),
-          });
-          resolve(compressedFile);
+          resolve(new File([blob], file.name.replace(/\.[^/.]+$/, "") + ".jpeg", { type: 'image/jpeg' }));
         }, 'image/jpeg', 0.7);
       };
     };
   });
 };
 
-const Package = (props) => (
-  <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.27 6.96 8.73 5.04 8.73-5.04"/><path d="M12 22.08V12"/></svg>
+const EmptyPackageIcon = ({ className }) => (
+  <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.27 6.96 8.73 5.04 8.73-5.04"/><path d="M12 22.08V12"/></svg>
 );
 
 export default function App() {
@@ -142,10 +122,8 @@ export default function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [uploadErrorMsg, setUploadErrorMsg] = useState("");
-  
   const [activeCategory, setActiveCategory] = useState('전체');
   const [searchQuery, setSearchQuery] = useState('');
-  
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
@@ -154,56 +132,47 @@ export default function App() {
   const [checkoutUser, setCheckoutUser] = useState('');
 
   const [formData, setFormData] = useState({
-    mgmtNum: '',
-    name: '',
-    category: '카메라바디',
-    status: '대여가능',
-    notes: '',
-    imageUrl: null,
-    currentUser: ''
+    mgmtNum: '', name: '', category: '카메라바디', status: '대여가능', notes: '', imageUrl: null, currentUser: ''
   });
 
-  // 누구나 접근할 수 있도록 익명 로그인 처리
   useEffect(() => {
     const initAuth = async () => {
       try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
+        const initialToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        if (initialToken) {
+          try {
+            await signInWithCustomToken(auth, initialToken);
+          } catch (tokenError) {
+            await signInAnonymously(auth);
+          }
         } else {
           await signInAnonymously(auth);
         }
-      } catch (error) {
-        console.error("Auth error:", error);
-      }
+      } catch (e) { console.error("Auth error", e); }
     };
     initAuth();
     const unsubscribe = onAuthStateChanged(auth, setUser);
     return () => unsubscribe();
   }, []);
 
-  // 데이터 동기화
   useEffect(() => {
     if (!user) return;
 
-    const equipRef = collection(db, 'artifacts', DB_APP_ID, 'public', 'data', 'equipment');
+    const equipRef = collection(db, 'artifacts', sanitizedAppId, 'public', 'data', 'equipment');
     const unsubEquip = onSnapshot(equipRef, (snapshot) => {
-      const data = snapshot.docs.map(doc => doc.data());
-      data.sort((a, b) => Number(b.id) - Number(a.id));
-      setEquipmentList(data);
+      setEquipmentList(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })));
       setIsConnected(true);
     }, (err) => {
-      console.error(err);
+      console.error("Firestore error", err);
       setIsConnected(false);
     });
 
-    const logsRef = collection(db, 'artifacts', DB_APP_ID, 'public', 'data', 'logs');
+    const logsRef = collection(db, 'artifacts', sanitizedAppId, 'public', 'data', 'logs');
     const unsubLogs = onSnapshot(logsRef, (snapshot) => {
-      const data = snapshot.docs.map(doc => doc.data());
-      data.sort((a, b) => Number(b.id) - Number(a.id));
-      setLogs(data);
+      setLogs(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })));
       setLoading(false);
     }, (err) => {
-      console.error(err);
+      console.error("Firestore logs error", err);
       setLoading(false);
     });
 
@@ -213,505 +182,252 @@ export default function App() {
     };
   }, [user]);
 
-  // Cloudinary 이미지 압축 및 업로드
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
     setIsUploadingImage(true);
     setUploadErrorMsg("");
-
     try {
-      const compressedFile = await compressImage(file);
-
-      const uploadData = new FormData();
-      uploadData.append('file', compressedFile);
-      uploadData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-
-      const response = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`, {
-        method: 'POST',
-        body: uploadData,
+      const compressed = await compressImage(file);
+      const fd = new FormData();
+      fd.append('file', compressed);
+      fd.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`, { 
+        method: 'POST', 
+        body: fd 
       });
-      
-      const data = await response.json();
-      
+      const data = await res.json();
       if (data.secure_url) {
-        setFormData({ ...formData, imageUrl: data.secure_url });
-      } else {
-        throw new Error(data.error?.message || "업로드 응답 오류");
+        setFormData(prev => ({ ...prev, imageUrl: String(data.secure_url) }));
       }
-    } catch (error) {
-      console.error("이미지 업로드 실패:", error);
-      setUploadErrorMsg("이미지 업로드에 실패했습니다. (Cloudinary Preset 설정을 확인해주세요)");
-    } finally {
-      setIsUploadingImage(false);
+    } catch (err) { 
+      setUploadErrorMsg("이미지 업로드 실패"); 
+    } finally { 
+      setIsUploadingImage(false); 
     }
   };
 
   const handleStatusChange = async (id, newStatus) => {
     if (!user) return;
-    const itemToUpdate = equipmentList.find(i => i.id === id);
-    if (!itemToUpdate) return;
-
+    const item = equipmentList.find(i => i.id === id);
+    if (!item) return;
     const now = formatDate(new Date());
-
-    if (itemToUpdate.status === '사용중' && (newStatus === '대여가능' || newStatus === '수리중')) {
-      const activeLog = logs.find(log => log.equipmentId === id && log.returnDate === null);
-      if (activeLog) {
-        await setDoc(doc(db, 'artifacts', DB_APP_ID, 'public', 'data', 'logs', activeLog.id.toString()), { 
-          ...activeLog, 
-          returnDate: now 
-        });
+    if (item.status === '사용중' && (newStatus === '대여가능' || newStatus === '수리중')) {
+      const log = logs.find(l => l.equipmentId === id && !l.returnDate);
+      if (log) {
+        await setDoc(doc(db, 'artifacts', sanitizedAppId, 'public', 'data', 'logs', log.id), { ...log, returnDate: now });
       }
     }
-
-    const resetUser = (newStatus === '대여가능' || newStatus === '수리중') ? '' : itemToUpdate.currentUser;
-    await setDoc(doc(db, 'artifacts', DB_APP_ID, 'public', 'data', 'equipment', id.toString()), { 
-      ...itemToUpdate, 
-      status: newStatus, 
-      currentUser: resetUser 
+    await setDoc(doc(db, 'artifacts', sanitizedAppId, 'public', 'data', 'equipment', id.toString()), { 
+      ...item, 
+      status: String(newStatus), 
+      currentUser: (newStatus === '대여가능' || newStatus === '수리중' ? '' : String(item.currentUser || '')) 
     });
   };
 
   const handleCheckoutSubmit = async (e) => {
     e.preventDefault();
     if (!user || !checkoutUser.trim()) return;
-    
     const now = formatDate(new Date());
-    const newLogId = Date.now().toString();
-
-    const newLog = {
-      id: newLogId,
-      equipmentId: checkoutItem.id,
-      mgmtNum: checkoutItem.mgmtNum,
-      equipmentName: checkoutItem.name,
-      userName: checkoutUser,
-      checkoutDate: now,
+    const logId = Date.now().toString();
+    await setDoc(doc(db, 'artifacts', sanitizedAppId, 'public', 'data', 'logs', logId), {
+      id: logId, 
+      equipmentId: checkoutItem.id, 
+      mgmtNum: String(checkoutItem.mgmtNum), 
+      equipmentName: String(checkoutItem.name), 
+      userName: String(checkoutUser), 
+      checkoutDate: now, 
       returnDate: null
-    };
-    
-    await setDoc(doc(db, 'artifacts', DB_APP_ID, 'public', 'data', 'logs', newLogId), newLog);
-    await setDoc(doc(db, 'artifacts', DB_APP_ID, 'public', 'data', 'equipment', checkoutItem.id.toString()), { 
+    });
+    await setDoc(doc(db, 'artifacts', sanitizedAppId, 'public', 'data', 'equipment', checkoutItem.id.toString()), { 
       ...checkoutItem, 
       status: '사용중', 
-      currentUser: checkoutUser 
+      currentUser: String(checkoutUser)
     });
-
-    setCheckoutItem(null);
+    setCheckoutItem(null); 
     setCheckoutUser('');
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!user || !formData.mgmtNum || !formData.name) return;
-
-    const now = formatDate(new Date());
-
-    if (editingItem) {
-      const oldItem = equipmentList.find(i => i.id === editingItem.id);
-      
-      if (oldItem.status === '사용중' && formData.status !== '사용중') {
-        const activeLog = logs.find(log => log.equipmentId === editingItem.id && log.returnDate === null);
-        if (activeLog) {
-          await setDoc(doc(db, 'artifacts', DB_APP_ID, 'public', 'data', 'logs', activeLog.id.toString()), { ...activeLog, returnDate: now });
-        }
-      } else if (oldItem.status !== '사용중' && formData.status === '사용중') {
-        const newLogId = Date.now().toString();
-        await setDoc(doc(db, 'artifacts', DB_APP_ID, 'public', 'data', 'logs', newLogId), {
-          id: newLogId,
-          equipmentId: oldItem.id,
-          mgmtNum: formData.mgmtNum,
-          equipmentName: formData.name,
-          userName: formData.currentUser || '관리자 강제 변경',
-          checkoutDate: now,
-          returnDate: null
-        });
-      }
-      
-      await setDoc(doc(db, 'artifacts', DB_APP_ID, 'public', 'data', 'equipment', editingItem.id.toString()), { ...formData, id: editingItem.id });
-    } else {
-      const newItemId = Date.now().toString();
-      await setDoc(doc(db, 'artifacts', DB_APP_ID, 'public', 'data', 'equipment', newItemId), { ...formData, id: newItemId });
-    }
+    if (!user) return;
+    const id = editingItem ? editingItem.id : Date.now().toString();
+    await setDoc(doc(db, 'artifacts', sanitizedAppId, 'public', 'data', 'equipment', id.toString()), { ...formData, id });
     handleCloseModal();
   };
 
-  const confirmDelete = async () => {
-    if (!user || !itemToDelete) return;
-    try {
-      await deleteDoc(doc(db, 'artifacts', DB_APP_ID, 'public', 'data', 'equipment', itemToDelete.id.toString()));
-      setItemToDelete(null);
-    } catch (error) {
-      console.error("Delete failed:", error);
-    }
-  };
-
   const handleCloseModal = () => {
-    setIsModalOpen(false);
-    setEditingItem(null);
+    setIsModalOpen(false); 
+    setEditingItem(null); 
     setUploadErrorMsg("");
-    setFormData({ mgmtNum: '', name: '', category: '카메라바디', status: '대여가능', notes: '', imageUrl: null, currentUser: '' });
-  };
-
-  const openEditModal = (item) => {
-    setEditingItem(item);
-    setUploadErrorMsg("");
-    setFormData({ ...item, notes: item.notes || '', imageUrl: item.imageUrl || null, currentUser: item.currentUser || '' });
-    setIsModalOpen(true);
-  };
-
-  const filteredEquipment = useMemo(() => {
-    return equipmentList.filter(item => {
-      const matchCategory = activeCategory === '전체' || item.category === activeCategory;
-      const matchSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                          item.mgmtNum.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchCategory && matchSearch;
+    setFormData({ 
+      mgmtNum: '', name: '', category: '카메라바디', status: '대여가능', notes: '', imageUrl: null, currentUser: '' 
     });
-  }, [equipmentList, activeCategory, searchQuery]);
+  };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
-          <p className="text-gray-500 font-medium">실시간 데이터베이스 연결 중...</p>
-        </div>
-      </div>
-    );
-  }
+  const filtered = useMemo(() => equipmentList.filter(i => 
+    (activeCategory === '전체' || i.category === activeCategory) && 
+    (String(i.name).toLowerCase().includes(searchQuery.toLowerCase()) || 
+     String(i.mgmtNum).toLowerCase().includes(searchQuery.toLowerCase()))
+  ), [equipmentList, activeCategory, searchQuery]);
+
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50"><Loader2 className="animate-spin text-indigo-600 w-8 h-8" /></div>;
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans text-gray-900">
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-10 shadow-sm">
-        <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+      <header className="bg-white border-b sticky top-0 z-10 shadow-sm">
+        <div className="max-w-6xl mx-auto p-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-indigo-50 rounded-lg">
-              <Camera className="w-6 h-6 text-indigo-600" />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold text-gray-900 leading-tight">촬영장비 통합관리</h1>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                {isConnected ? (
-                  <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 uppercase">
-                    <Wifi className="w-2.5 h-2.5" /> 공유 중
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1 text-[10px] font-bold text-red-500 uppercase">
-                    <WifiOff className="w-2.5 h-2.5" /> 오프라인
-                  </span>
-                )}
-              </div>
-            </div>
+            <Camera className="text-indigo-600" />
+            <h1 className="font-bold text-lg leading-tight">촬영장비 통합관리</h1>
+            {isConnected ? <Wifi className="w-3 h-3 text-emerald-500" /> : <WifiOff className="w-3 h-3 text-red-400" />}
           </div>
-          <div className="flex items-center gap-2">
-            <button 
-              onClick={() => setIsLogModalOpen(true)}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-all text-sm font-semibold"
-            >
-              <History className="w-4 h-4" /> <span className="hidden sm:inline">기록</span>
-            </button>
-            <button 
-              onClick={() => setIsModalOpen(true)}
-              className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-all shadow-md text-sm font-bold"
-            >
-              <Plus className="w-4 h-4" /> <span className="hidden sm:inline">등록</span>
-            </button>
+          <div className="flex gap-2">
+            <button onClick={() => setIsLogModalOpen(true)} className="p-2 border rounded-xl hover:bg-gray-50 transition-colors"><History className="w-5 h-5" /></button>
+            <button onClick={() => setIsModalOpen(true)} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center gap-2"><Plus className="w-5 h-5" /> 등록</button>
           </div>
         </div>
       </header>
 
-      <main className="flex-1 max-w-6xl mx-auto px-4 py-6 w-full">
+      <main className="max-w-6xl mx-auto p-4 w-full flex-1">
         <div className="mb-6 space-y-4">
-          <div className="relative group">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-indigo-500 transition-colors" />
-            <input 
-              type="text" 
-              placeholder="장비명 또는 관리번호로 검색하세요" 
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-12 pr-4 py-3.5 rounded-2xl border border-gray-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all shadow-sm bg-white"
-            />
+          <div className="relative">
+            <Search className="absolute left-4 top-3.5 w-5 h-5 text-gray-400" />
+            <input type="text" placeholder="검색..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="w-full pl-12 pr-4 py-3.5 rounded-2xl border border-gray-200 outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all shadow-sm bg-white" />
           </div>
-
-          <div className="flex overflow-x-auto pb-2 gap-2 scrollbar-hide touch-pan-x">
-            {CATEGORIES.map(cat => {
-              const Icon = cat.icon;
-              const isActive = activeCategory === cat.name;
+          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+            {CATEGORIES.map(c => {
+              const Icon = c.icon;
               return (
-                <button
-                  key={cat.name}
-                  onClick={() => setActiveCategory(cat.name)}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl whitespace-nowrap transition-all border text-sm font-bold
-                    ${isActive 
-                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-200 scale-105' 
-                      : 'bg-white text-gray-500 border-gray-200 hover:border-indigo-300 hover:text-indigo-600'
-                    }`}
-                >
-                  <Icon className="w-4 h-4" /> {cat.name}
+                <button key={c.name} onClick={() => setActiveCategory(c.name)} className={`px-4 py-2.5 rounded-xl whitespace-nowrap text-sm font-bold border transition-all flex items-center gap-2 ${activeCategory === c.name ? 'bg-indigo-600 text-white border-indigo-600 shadow-md scale-105' : 'bg-white text-gray-500 border-gray-200 hover:border-indigo-300'}`}>
+                  <Icon className="w-4 h-4" /> {String(c.name)}
                 </button>
-              )
+              );
             })}
           </div>
         </div>
 
-        {filteredEquipment.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredEquipment.map((item) => (
-              <div key={item.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-xl transition-all group flex flex-col relative">
-                <div className="h-44 w-full bg-gray-100 relative overflow-hidden shrink-0">
-                  {item.imageUrl ? (
-                    <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                  ) : (
-                    <div className="flex items-center justify-center w-full h-full text-gray-300 bg-gradient-to-br from-gray-50 to-gray-100">
-                      <ImageIcon className="w-12 h-12" />
-                    </div>
-                  )}
+        {filtered.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filtered.map(item => (
+              <div key={item.id} className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm hover:shadow-xl transition-all group flex flex-col">
+                <div className="h-44 bg-gray-100 relative overflow-hidden">
+                  {item.imageUrl ? <img src={String(item.imageUrl)} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt="" /> : <div className="w-full h-full flex items-center justify-center text-gray-300"><ImageIcon className="w-12 h-12" /></div>}
                   <div className="absolute top-3 left-3">
-                    <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest border bg-white/90 backdrop-blur-sm shadow-sm
-                      ${item.status === '대여가능' ? 'text-emerald-600 border-emerald-200' : 
-                        item.status === '사용중' ? 'text-blue-600 border-blue-200' : 'text-red-600 border-red-200'}`}>
-                      {item.status}
+                    <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest bg-white/90 shadow-sm border ${item.status === '대여가능' ? 'text-emerald-600 border-emerald-100' : item.status === '사용중' ? 'text-blue-600 border-blue-100' : 'text-red-600 border-red-100'}`}>
+                      {String(item.status)}
                     </span>
-                  </div>
-                  <div className="absolute top-3 right-3 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => openEditModal(item)} className="p-2 bg-white/90 backdrop-blur-sm rounded-full text-gray-600 hover:text-indigo-600 shadow-sm transition-colors">
-                      <Edit className="w-4 h-4" />
-                    </button>
-                    <button onClick={() => setItemToDelete(item)} className="p-2 bg-white/90 backdrop-blur-sm rounded-full text-gray-600 hover:text-red-600 shadow-sm transition-colors">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
                   </div>
                 </div>
-
                 <div className="p-5 flex-1 flex flex-col">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-tighter bg-indigo-50 px-2 py-0.5 rounded">
-                      {item.mgmtNum}
-                    </span>
-                    <span className="text-[10px] text-gray-400 font-medium">{item.category}</span>
-                  </div>
-                  <h3 className="text-base font-bold text-gray-900 mb-3 truncate">{item.name}</h3>
-                  
+                  <div className="text-[10px] font-bold text-indigo-500 uppercase mb-1">{String(item.mgmtNum)}</div>
+                  <h3 className="font-bold text-gray-900 text-lg mb-2">{String(item.name)}</h3>
                   {item.status === '사용중' && item.currentUser && (
-                    <div className="bg-blue-50/50 border border-blue-100 rounded-xl px-3 py-2.5 flex items-center gap-2 mb-4 animate-pulse-subtle">
-                      <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center">
-                        <User className="w-3.5 h-3.5 text-blue-600" />
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-blue-500 font-bold uppercase tracking-tight">현재 대여자</p>
-                        <p className="text-sm font-bold text-blue-900 leading-none">{item.currentUser}</p>
-                      </div>
-                    </div>
+                    <div className="flex items-center gap-2 mb-4 p-2 bg-blue-50 rounded-lg text-sm font-bold text-blue-900"><User className="w-4 h-4" /> {String(item.currentUser)} 사용 중</div>
                   )}
-
-                  {item.notes && !item.currentUser && (
-                    <p className="text-xs text-gray-500 line-clamp-2 mb-4 min-h-[2rem] bg-gray-50 p-2 rounded-lg italic">
-                      "{item.notes}"
-                    </p>
-                  )}
-
-                  <div className="mt-auto pt-4 flex gap-2">
-                    {item.status === '대여가능' && (
-                      <button onClick={() => setCheckoutItem(item)} className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 text-white py-2.5 rounded-xl font-bold hover:bg-indigo-700 transition-all text-xs">
-                        <LogOut className="w-4 h-4" /> 반출하기
-                      </button>
+                  <div className="mt-auto flex gap-2 pt-4">
+                    {item.status === '대여가능' ? (
+                      <button onClick={() => setCheckoutItem(item)} className="flex-1 bg-indigo-600 text-white py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-colors"><LogOut className="w-4 h-4 inline mr-2" /> 반출</button>
+                    ) : (
+                      <button onClick={() => handleStatusChange(item.id, '대여가능')} className="flex-1 bg-emerald-500 text-white py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-emerald-100 hover:bg-emerald-600 transition-colors"><LogIn className="w-4 h-4 inline mr-2" /> 반입</button>
                     )}
-                    {item.status === '사용중' && (
-                      <button onClick={() => handleStatusChange(item.id, '대여가능')} className="flex-1 flex items-center justify-center gap-2 bg-emerald-500 text-white py-2.5 rounded-xl font-bold hover:bg-emerald-600 transition-all text-xs">
-                        <LogIn className="w-4 h-4" /> 반입 완료
-                      </button>
-                    )}
-                    {item.status === '수리중' && (
-                      <button onClick={() => handleStatusChange(item.id, '대여가능')} className="flex-1 flex items-center justify-center gap-2 bg-gray-800 text-white py-2.5 rounded-xl font-bold hover:bg-black transition-all text-xs">
-                        <CheckCircle2 className="w-4 h-4" /> 수리 완료
-                      </button>
-                    )}
+                    <button onClick={() => { setEditingItem(item); setFormData(item); setIsModalOpen(true); }} className="p-2.5 border rounded-xl hover:bg-gray-50 transition-colors"><Edit className="w-4 h-4 text-gray-500" /></button>
+                    <button onClick={() => setItemToDelete(item)} className="p-2.5 border rounded-xl text-red-500 hover:bg-red-50 transition-colors"><Trash2 className="w-4 h-4" /></button>
                   </div>
                 </div>
               </div>
             ))}
           </div>
         ) : (
-          <div className="text-center py-24 bg-white rounded-3xl border-2 border-dashed border-gray-200">
-            <div className="bg-gray-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Package className="w-8 h-8 text-gray-300" />
-            </div>
-            <h3 className="text-gray-900 font-bold text-lg">표시할 장비가 없습니다</h3>
-            <p className="text-gray-400 text-sm mt-1">새로운 촬영 장비를 등록하거나 검색어를 확인해주세요.</p>
+          <div className="py-32 text-center bg-white rounded-3xl border-2 border-dashed border-gray-200">
+            <EmptyPackageIcon className="mx-auto w-12 h-12 text-gray-200 mb-4" />
+            <p className="text-gray-400 font-medium">검색 결과가 없습니다.</p>
           </div>
         )}
       </main>
 
-      {/* 대여 기록 모달 */}
-      {isLogModalOpen && (
-        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
-            <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-indigo-100 rounded-lg text-indigo-600"><History className="w-5 h-5" /></div>
-                <h2 className="text-xl font-bold text-gray-900">장비 대여 히스토리</h2>
+      {/* 모달 창들 */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b flex justify-between items-center bg-gray-50/50">
+              <h2 className="font-bold text-xl text-gray-900">{editingItem ? '장비 정보 수정' : '새 장비 등록'}</h2>
+              <button onClick={handleCloseModal}><X className="text-gray-400" /></button>
+            </div>
+            <form onSubmit={handleSubmit} className="p-6 space-y-5">
+              <div className="flex items-center gap-5 p-4 bg-gray-50 rounded-2xl border">
+                <div className="w-20 h-20 border-2 border-dashed rounded-2xl flex items-center justify-center relative overflow-hidden bg-white">
+                   {formData.imageUrl ? <img src={String(formData.imageUrl)} className="w-full h-full object-cover" alt="" /> : <ImageIcon className="w-8 h-8 text-gray-200" />}
+                   <input type="file" accept="image/*" onChange={handleImageUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
+                   {isUploadingImage && <div className="absolute inset-0 bg-white/80 flex items-center justify-center"><Loader2 className="animate-spin text-indigo-600" /></div>}
+                </div>
+                <div className="text-xs text-gray-500">이미지를 업로드하거나 변경할 수 있습니다.</div>
               </div>
-              <button onClick={() => setIsLogModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-400 hover:text-gray-900"><X className="w-6 h-6" /></button>
+              <input required placeholder="관리번호" value={formData.mgmtNum} onChange={e=>setFormData({...formData, mgmtNum: e.target.value})} className="w-full border p-3 rounded-xl outline-none focus:border-indigo-500 transition-all font-bold" />
+              <input required placeholder="장비 이름" value={formData.name} onChange={e=>setFormData({...formData, name: e.target.value})} className="w-full border p-3 rounded-xl outline-none focus:border-indigo-500 transition-all font-bold" />
+              <select value={formData.category} onChange={e=>setFormData({...formData, category: e.target.value})} className="w-full border p-3 rounded-xl outline-none bg-white font-bold">
+                {CATEGORIES.filter(c=>c.name!=='전체').map(c=><option key={c.name}>{String(c.name)}</option>)}
+              </select>
+              <button type="submit" disabled={isUploadingImage} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold text-base shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all disabled:bg-gray-300">저장 완료</button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {checkoutItem && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <form onSubmit={handleCheckoutSubmit} className="bg-white rounded-3xl w-full max-w-sm p-6 space-y-6 shadow-2xl animate-in zoom-in-95 duration-200">
+            <h2 className="font-bold text-xl text-gray-900">장비 반출 승인</h2>
+            <div className="bg-indigo-50 border p-4 rounded-2xl text-indigo-900 font-bold">[{String(checkoutItem.mgmtNum)}] {String(checkoutItem.name)}</div>
+            <input required autoFocus placeholder="대여자 성함" value={checkoutUser} onChange={e=>setCheckoutUser(e.target.value)} className="w-full border p-4 rounded-2xl outline-none focus:border-indigo-500 font-bold bg-gray-50" />
+            <div className="flex gap-3">
+              <button type="button" onClick={()=>setCheckoutItem(null)} className="flex-1 border py-3 rounded-2xl font-bold text-gray-500">취소</button>
+              <button type="submit" className="flex-1 bg-indigo-600 text-white py-3 rounded-2xl font-bold shadow-lg shadow-indigo-100">승인 완료</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {itemToDelete && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl p-8 text-center max-w-xs w-full shadow-2xl">
+            <AlertTriangle className="text-red-500 w-12 h-12 mx-auto mb-4" />
+            <h3 className="font-bold text-xl mb-6">정말 삭제하시겠습니까?</h3>
+            <div className="flex gap-3">
+              <button onClick={()=>setItemToDelete(null)} className="flex-1 border py-3 rounded-xl font-bold">취소</button>
+              <button onClick={async () => { await deleteDoc(doc(db, 'artifacts', sanitizedAppId, 'public', 'data', 'equipment', itemToDelete.id.toString())); setItemToDelete(null); }} className="flex-1 bg-red-500 text-white py-3 rounded-xl font-bold">삭제</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isLogModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden shadow-2xl">
+            <div className="p-6 border-b flex justify-between items-center bg-gray-50/50">
+              <h2 className="font-bold text-xl text-gray-900">장비 반출/반입 히스토리</h2>
+              <button onClick={()=>setIsLogModalOpen(false)}><X className="text-gray-400" /></button>
             </div>
             <div className="flex-1 overflow-y-auto p-6">
               {logs.length > 0 ? (
-                <div className="overflow-x-auto rounded-2xl border border-gray-200">
+                <div className="overflow-x-auto rounded-xl border">
                   <table className="w-full text-sm text-left">
-                    <thead className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-200">
-                      <tr>
-                        <th className="px-6 py-4">상태</th>
-                        <th className="px-6 py-4">장비명 / ID</th>
-                        <th className="px-6 py-4">사용자</th>
-                        <th className="px-6 py-4">시간 기록</th>
-                      </tr>
+                    <thead className="bg-gray-50 text-gray-400 font-bold">
+                      <tr><th className="px-6 py-4">상태</th><th className="px-6 py-4">장비 정보</th><th className="px-6 py-4">대여자</th><th className="px-6 py-4">시간</th></tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {logs.map((log) => (
-                        <tr key={log.id} className="hover:bg-indigo-50/30 transition-colors">
-                          <td className="px-6 py-4">
-                            {log.returnDate ? (
-                              <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded border border-emerald-100">반납완료</span>
-                            ) : (
-                              <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded border border-blue-100 animate-pulse">사용중</span>
-                            )}
-                          </td>
-                          <td className="px-6 py-4">
-                            <p className="font-bold text-gray-900">{log.equipmentName}</p>
-                            <p className="text-[10px] text-gray-400 font-mono mt-0.5">{log.mgmtNum}</p>
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-2">
-                              <div className="w-6 h-6 bg-gray-200 rounded-full flex items-center justify-center text-[10px] font-bold text-gray-600">{log.userName.charAt(0)}</div>
-                              <span className="font-semibold text-gray-700">{log.userName}</span>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 text-[11px] text-gray-500 leading-relaxed font-medium">
-                            <div className="flex items-center gap-1.5"><LogOut className="w-3 h-3 text-gray-300" /> {log.checkoutDate}</div>
-                            {log.returnDate && <div className="flex items-center gap-1.5 mt-1"><LogIn className="w-3 h-3 text-gray-300" /> {log.returnDate}</div>}
-                          </td>
+                    <tbody className="divide-y">
+                      {[...logs].sort((a,b)=>String(b.id).localeCompare(String(a.id))).map(l => (
+                        <tr key={l.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-6 py-4">{l.returnDate ? <span className="text-emerald-600 font-bold">반납완료</span> : <span className="text-blue-600 font-bold animate-pulse">대여중</span>}</td>
+                          <td className="px-6 py-4 font-bold">{String(l.equipmentName)} <span className="text-xs text-gray-400">({String(l.mgmtNum)})</span></td>
+                          <td className="px-6 py-4 font-bold">{String(l.userName)}</td>
+                          <td className="px-6 py-4 text-[10px] text-gray-400"><div>반출: {String(l.checkoutDate)}</div>{l.returnDate && <div>반납: {String(l.returnDate)}</div>}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-              ) : (
-                <div className="py-20 text-center"><History className="w-12 h-12 text-gray-200 mx-auto mb-3" /><p className="text-gray-400 font-medium">기록된 대여 내역이 아직 없습니다.</p></div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 장비 등록/수정 모달 */}
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="p-6 border-b border-gray-100 flex justify-between items-center">
-              <h2 className="text-xl font-bold text-gray-900">{editingItem ? '장비 정보 수정' : '새 촬영장비 등록'}</h2>
-              <button onClick={handleCloseModal} className="text-gray-400 hover:text-gray-900"><X className="w-6 h-6" /></button>
-            </div>
-            <form onSubmit={handleSubmit} className="p-6 space-y-5">
-              
-              {/* 이미지 업로드 영역 */}
-              <div className="flex items-center gap-4 bg-gray-50 p-4 rounded-2xl border border-gray-100">
-                <div className="w-20 h-20 rounded-xl bg-white border-2 border-dashed border-gray-200 flex items-center justify-center overflow-hidden shrink-0 relative group">
-                  {isUploadingImage ? (
-                    <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
-                  ) : formData.imageUrl ? (
-                    <img src={formData.imageUrl} alt="미리보기" className="w-full h-full object-cover" />
-                  ) : (
-                    <ImageIcon className="w-6 h-6 text-gray-300" />
-                  )}
-                  <input type="file" accept="image/*" onChange={handleImageUpload} className="absolute inset-0 opacity-0 cursor-pointer disabled:cursor-not-allowed" disabled={isUploadingImage} />
-                </div>
-                <div className="flex-1">
-                  <p className="text-xs font-bold text-gray-400 uppercase mb-1">장비 이미지 {isUploadingImage && "(압축 및 업로드 중...)"}</p>
-                  <label className={`inline-block text-[11px] font-bold px-3 py-1.5 rounded-lg border transition-colors ${isUploadingImage ? 'text-gray-400 bg-gray-100 border-gray-200' : 'text-indigo-600 bg-indigo-50 border-indigo-100 cursor-pointer hover:bg-indigo-100'}`}>
-                    {isUploadingImage ? '처리 중...' : '사진 올리기'}
-                  </label>
-                  {uploadErrorMsg && <p className="text-[10px] text-red-500 mt-1 font-semibold">{uploadErrorMsg}</p>}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-1">
-                  <label className="block text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">관리번호 *</label>
-                  <input required type="text" value={formData.mgmtNum} onChange={e => setFormData({...formData, mgmtNum: e.target.value})} placeholder="예: CAM-001" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all text-sm font-bold" />
-                </div>
-                <div className="col-span-1">
-                  <label className="block text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">분류</label>
-                  <select value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all text-sm font-bold bg-white">
-                    {CATEGORIES.filter(c => c.name !== '전체').map(cat => <option key={cat.name} value={cat.name}>{cat.name}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">장비명 *</label>
-                <input required type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="장비 이름을 입력하세요" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all text-sm font-bold" />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">현재 상태</label>
-                  <select value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all text-sm font-bold bg-white">
-                    {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
-                {formData.status === '사용중' && (
-                  <div>
-                    <label className="block text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">현재 대여자</label>
-                    <input type="text" value={formData.currentUser} onChange={e => setFormData({...formData, currentUser: e.target.value})} placeholder="대여자 성함" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all text-sm font-bold" />
-                  </div>
-                )}
-              </div>
-
-              <button type="submit" disabled={isUploadingImage} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 mt-2 disabled:bg-indigo-300 disabled:cursor-not-allowed">
-                {editingItem ? '정보 수정하기' : '장비 등록 완료'}
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* 반출하기 모달 */}
-      {checkoutItem && (
-        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="p-6 border-b border-gray-100 flex justify-between items-center">
-              <h2 className="text-xl font-bold text-gray-900">장비 반출 승인</h2>
-              <button onClick={() => setCheckoutItem(null)} className="text-gray-400 hover:text-gray-900"><X className="w-6 h-6" /></button>
-            </div>
-            <form onSubmit={handleCheckoutSubmit} className="p-6 space-y-6">
-              <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-2xl">
-                <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">반출 장비 정보</p>
-                <p className="text-base font-bold text-indigo-900 leading-tight">[{checkoutItem.mgmtNum}] {checkoutItem.name}</p>
-              </div>
-              <div>
-                <label className="block text-[11px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">장비를 빌려가는 분의 성함 *</label>
-                <div className="relative">
-                  <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-300" />
-                  <input required autoFocus type="text" value={checkoutUser} onChange={e => setCheckoutUser(e.target.value)} placeholder="실명을 입력해 주세요" className="w-full pl-12 pr-4 py-3.5 rounded-2xl border border-gray-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all text-sm font-bold shadow-inner bg-gray-50/50" />
-                </div>
-              </div>
-              <button type="submit" className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100">반출 기록 및 승인</button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* 삭제 확인 모달 */}
-      {itemToDelete && (
-        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xs p-8 text-center animate-in zoom-in-95 duration-200">
-            <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-100">
-              <AlertTriangle className="w-8 h-8 text-red-500" />
-            </div>
-            <h3 className="text-xl font-bold text-gray-900 mb-2">장비 삭제</h3>
-            <p className="text-sm text-gray-400 leading-relaxed mb-6 font-medium">[{itemToDelete.mgmtNum}] {itemToDelete.name}를 목록에서 삭제하시겠습니까? 데이터는 복구되지 않습니다.</p>
-            <div className="flex gap-3">
-              <button onClick={() => setItemToDelete(null)} className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-colors">취소</button>
-              <button onClick={confirmDelete} className="flex-1 py-3 bg-red-500 text-white rounded-xl font-bold hover:bg-red-600 transition-colors shadow-lg shadow-red-100">삭제</button>
+              ) : <div className="py-24 text-center text-gray-400 font-medium">대여 기록이 없습니다.</div>}
             </div>
           </div>
         </div>
