@@ -536,11 +536,11 @@ export default function App() {
                         {item.status}
                       </span>
                     </div>
-                    <div className="absolute top-3 right-3 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => openEditModal(item)} className="p-2 bg-white/90 backdrop-blur-sm rounded-full text-gray-600 hover:text-indigo-600 shadow-sm transition-colors">
+                    <div className="absolute top-3 right-3 flex gap-2 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity z-10">
+                      <button onClick={(e) => { e.stopPropagation(); openEditModal(item); }} className="p-2.5 bg-white/90 backdrop-blur-sm rounded-full text-gray-700 hover:text-indigo-600 shadow-md transition-colors">
                         <Edit className="w-4 h-4" />
                       </button>
-                      <button onClick={() => setItemToDelete(item)} className="p-2 bg-white/90 backdrop-blur-sm rounded-full text-gray-600 hover:text-red-600 shadow-sm transition-colors">
+                      <button onClick={(e) => { e.stopPropagation(); setItemToDelete(item); }} className="p-2.5 bg-white/90 backdrop-blur-sm rounded-full text-gray-700 hover:text-red-600 shadow-md transition-colors">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
