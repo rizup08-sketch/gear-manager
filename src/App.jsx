@@ -548,7 +548,7 @@ export default function App() {
 
                   <div className="p-5 flex-1 flex flex-col">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-lg sm:text-xl font-black text-indigo-600 tracking-tight bg-indigo-50 px-3 py-1.5 rounded-md border border-indigo-100">
+                      <span className="text-sm font-black text-indigo-600 tracking-tight bg-indigo-50 px-2.5 py-1 rounded-md border border-indigo-100">
                         {String(item.mgmtNum).toLowerCase()}
                       </span>
                       <span className="text-xs text-gray-400 font-medium">{item.category}</span>
