@@ -9,7 +9,6 @@ import {
   Trash2, 
   X,
   AlertTriangle,
-  CheckCircle2,
   Image as ImageIcon,
   LogOut,
   LogIn,
@@ -22,14 +21,16 @@ import {
   History,
   Loader2,
   Wifi,
-  WifiOff
+  WifiOff,
+  List,
+  Download
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
 
-// 1. 환경 변수 안전 로드 및 폴백(Fallback) 설정
+// 1. 환경 변수 안전 로드
 const getEnv = (key, fallback) => {
   try {
     if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
@@ -39,7 +40,7 @@ const getEnv = (key, fallback) => {
   return fallback;
 };
 
-// 2. Firebase 설정 (Vercel 환경변수 또는 직접 입력된 키 사용)
+// 2. Firebase 설정
 const firebaseConfig = {
   apiKey: getEnv('VITE_FIREBASE_API_KEY', "AIzaSyAw_hDTzzOXhbHpzIcZ4f58XYSZDa2u_cE"),
   authDomain: getEnv('VITE_FIREBASE_AUTH_DOMAIN', "shooting-gear-manger.firebaseapp.com"),
@@ -49,16 +50,15 @@ const firebaseConfig = {
   appId: getEnv('VITE_FIREBASE_APP_ID', "1:668298898658:web:69c5f84554775d8f48c2bb"),
 };
 
-// Firebase 초기화
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// 3. 데이터베이스 경로 최적화 (슬래시 포함 시 발생하는 6 segment 에러 방지)
+// 3. 데이터베이스 경로 최적화
 const rawAppId = typeof __app_id !== 'undefined' ? __app_id : "gear-manager-app";
 const sanitizedAppId = String(rawAppId).split('/').filter(Boolean).join('_');
 
-// 4. Cloudinary 설정 (이미지 업로드용)
+// 4. Cloudinary 설정
 const CLOUDINARY_CLOUD_NAME = getEnv('VITE_CLOUDINARY_CLOUD_NAME', "dwjkpawch");
 const CLOUDINARY_UPLOAD_PRESET = getEnv('VITE_CLOUDINARY_UPLOAD_PRESET', "shooting_gear");
 
@@ -74,9 +74,6 @@ const CATEGORIES = [
   { name: '기타', icon: MoreHorizontal },
 ];
 
-const STATUS_OPTIONS = ['대여가능', '사용중', '수리중'];
-
-// 날짜 포맷팅 함수
 const formatDate = (date) => {
   if (!date) return '';
   const d = new Date(date);
@@ -84,7 +81,6 @@ const formatDate = (date) => {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
 
-// 이미지 압축 유틸리티
 const compressImage = (file) => {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -119,7 +115,6 @@ const EmptyPackageIcon = ({ className }) => (
 );
 
 export default function App() {
-  // 상태 관리
   const [equipmentList, setEquipmentList] = useState([]);
   const [logs, setLogs] = useState([]);
   const [user, setUser] = useState(null);
@@ -127,8 +122,12 @@ export default function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [uploadErrorMsg, setUploadErrorMsg] = useState("");
+  
+  // 상태 관리 추가: 화면 모드 ('grid' 카드뷰, 'list' 관리대장)
+  const [viewMode, setViewMode] = useState('grid');
   const [activeCategory, setActiveCategory] = useState('전체');
   const [searchQuery, setSearchQuery] = useState('');
+  
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
@@ -161,13 +160,12 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 7. 실시간 데이터 연동 (Firestore)
+  // 7. 실시간 데이터 연동
   useEffect(() => {
     if (!user) return;
 
     const equipRef = collection(db, 'artifacts', sanitizedAppId, 'public', 'data', 'equipment');
     const unsubEquip = onSnapshot(equipRef, (snapshot) => {
-      // 데이터 렌더링 시 객체 오류 방지를 위해 명시적 문자열 변환 및 복사
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: String(doc.id) }));
       setEquipmentList(data);
       setIsConnected(true);
@@ -192,7 +190,39 @@ export default function App() {
     };
   }, [user]);
 
-  // 이미지 업로드 핸들러
+  // 백업 기능: 엑셀(CSV) 다운로드 함수
+  const handleExportCSV = () => {
+    // 엑셀에서 한글이 깨지지 않도록 BOM 추가
+    const BOM = "\uFEFF";
+    const headers = ['관리번호', '카테고리', '장비명', '상태', '현재사용자', '특이사항(메모)'];
+    
+    // 현재 화면에 필터링된 목록을 내보냅니다. (전체를 원하면 sortedList 사용)
+    const csvRows = [headers.join(',')];
+
+    filtered.forEach(item => {
+      const row = [
+        `"${String(item.mgmtNum).replace(/"/g, '""')}"`,
+        `"${String(item.category).replace(/"/g, '""')}"`,
+        `"${String(item.name).replace(/"/g, '""')}"`,
+        `"${String(item.status).replace(/"/g, '""')}"`,
+        `"${String(item.currentUser || '').replace(/"/g, '""')}"`,
+        `"${String(item.notes || '').replace(/"/g, '""')}"`
+      ];
+      csvRows.push(row.join(','));
+    });
+
+    const csvContent = BOM + csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `장비관리대장_${formatDate(new Date()).replace(/[:. ]/g, '_')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -218,14 +248,12 @@ export default function App() {
     }
   };
 
-  // 장비 상태 변경 (반입/반납 처리)
   const handleStatusChange = async (id, newStatus) => {
     if (!user) return;
     const item = equipmentList.find(i => i.id === id);
     if (!item) return;
     const now = formatDate(new Date());
     
-    // 반납 시 로그 업데이트
     if (item.status === '사용중' && (newStatus === '대여가능' || newStatus === '수리중')) {
       const log = logs.find(l => l.equipmentId === id && !l.returnDate);
       if (log) {
@@ -240,7 +268,6 @@ export default function App() {
     });
   };
 
-  // 대여(반출) 승인 핸들러
   const handleCheckoutSubmit = async (e) => {
     e.preventDefault();
     if (!user || !checkoutUser.trim()) return;
@@ -267,7 +294,6 @@ export default function App() {
     setCheckoutUser('');
   };
 
-  // 장비 등록/수정 제출
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!user) return;
@@ -285,28 +311,34 @@ export default function App() {
     });
   };
 
-  // 필터링된 목록 계산 (검색 및 카테고리)
+  // 정렬 및 필터링 로직 (관리번호 순 정렬 추가)
+  const sortedList = useMemo(() => {
+    return [...equipmentList].sort((a, b) => {
+      // 숫자 체계를 인식하여 자연스럽게 정렬 (예: CAM-2가 CAM-10보다 앞서도록)
+      return String(a.mgmtNum).localeCompare(String(b.mgmtNum), undefined, { numeric: true, sensitivity: 'base' });
+    });
+  }, [equipmentList]);
+
   const filtered = useMemo(() => {
-    const list = [...equipmentList].sort((a, b) => String(b.id).localeCompare(String(a.id)));
-    return list.filter(i => 
+    return sortedList.filter(i => 
       (activeCategory === '전체' || i.category === activeCategory) && 
       (String(i.name).toLowerCase().includes(searchQuery.toLowerCase()) || 
        String(i.mgmtNum).toLowerCase().includes(searchQuery.toLowerCase()))
     );
-  }, [equipmentList, activeCategory, searchQuery]);
+  }, [sortedList, activeCategory, searchQuery]);
 
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="flex flex-col items-center gap-2">
         <Loader2 className="animate-spin text-indigo-600 w-8 h-8" />
-        <p className="text-gray-500 font-medium">실시간 데이터 연결 중...</p>
+        <p className="text-gray-500 font-medium">데이터 연결 중...</p>
       </div>
     </div>
   );
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans text-gray-900">
-      {/* 헤더 섹션 */}
+      {/* 헤더 */}
       <header className="bg-white border-b sticky top-0 z-10 shadow-sm">
         <div className="max-w-6xl mx-auto p-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
@@ -334,11 +366,11 @@ export default function App() {
         </div>
       </header>
 
-      {/* 메인 섹션 */}
-      <main className="max-w-6xl mx-auto p-4 w-full flex-1">
-        <div className="mb-6 space-y-4">
-          {/* 검색 바 */}
-          <div className="relative group">
+      {/* 메인 */}
+      <main className="max-w-6xl mx-auto p-4 w-full flex-1 flex flex-col">
+        {/* 상단 컨트롤러 (검색, 뷰 전환 탭) */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
+          <div className="relative group flex-1 w-full max-w-xl">
             <Search className="absolute left-4 top-3.5 w-5 h-5 text-gray-400 group-focus-within:text-indigo-500 transition-colors" />
             <input 
               type="text" 
@@ -349,89 +381,155 @@ export default function App() {
             />
           </div>
           
-          {/* 카테고리 필터 */}
-          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-            {CATEGORIES.map(c => {
-              const CategoryIcon = c.icon;
-              const isActive = activeCategory === c.name;
-              return (
-                <button 
-                  key={c.name} 
-                  onClick={() => setActiveCategory(c.name)} 
-                  className={`px-4 py-2.5 rounded-xl whitespace-nowrap text-sm font-bold border transition-all flex items-center gap-2
-                    ${isActive 
-                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-md scale-105' 
-                      : 'bg-white text-gray-500 border-gray-200 hover:border-indigo-300'}`}
-                >
-                  <CategoryIcon className="w-4 h-4" /> {String(c.name)}
-                </button>
-              );
-            })}
+          <div className="flex items-center bg-gray-200/60 p-1.5 rounded-2xl w-full sm:w-auto">
+            <button 
+              onClick={() => setViewMode('grid')} 
+              className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${viewMode === 'grid' ? 'bg-white shadow-md text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              <LayoutGrid className="w-4 h-4"/> 카드 뷰
+            </button>
+            <button 
+              onClick={() => setViewMode('list')} 
+              className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${viewMode === 'list' ? 'bg-white shadow-md text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              <List className="w-4 h-4"/> 관리대장
+            </button>
           </div>
         </div>
+        
+        {/* 카테고리 필터 */}
+        <div className="flex gap-2 overflow-x-auto pb-4 scrollbar-hide mb-2">
+          {CATEGORIES.map(c => {
+            const CategoryIcon = c.icon;
+            const isActive = activeCategory === c.name;
+            return (
+              <button 
+                key={c.name} 
+                onClick={() => setActiveCategory(c.name)} 
+                className={`px-4 py-2.5 rounded-xl whitespace-nowrap text-sm font-bold border transition-all flex items-center gap-2
+                  ${isActive 
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-md scale-105' 
+                    : 'bg-white text-gray-500 border-gray-200 hover:border-indigo-300'}`}
+              >
+                <CategoryIcon className="w-4 h-4" /> {String(c.name)}
+              </button>
+            );
+          })}
+        </div>
 
-        {/* 장비 리스트 그리드 */}
+        {/* 뷰 모드에 따른 렌더링 */}
         {filtered.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filtered.map(item => (
-              <div key={String(item.id)} className="bg-white rounded-3xl border border-gray-100 overflow-hidden shadow-sm hover:shadow-xl transition-all group flex flex-col">
-                {/* 카드 상단 이미지 영역 */}
-                <div className="h-44 bg-gray-100 relative overflow-hidden">
-                  {item.imageUrl ? 
-                    <img src={String(item.imageUrl)} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt="" /> : 
-                    <div className="w-full h-full flex items-center justify-center text-gray-300"><ImageIcon className="w-12 h-12" /></div>
-                  }
-                  <div className="absolute top-3 left-3">
-                    <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest bg-white/90 shadow-sm border
-                      ${item.status === '대여가능' ? 'text-emerald-600 border-emerald-100' : 
-                        item.status === '사용중' ? 'text-blue-600 border-blue-100' : 'text-red-600 border-red-100'}`}>
-                      {String(item.status)}
-                    </span>
-                  </div>
-                </div>
-                
-                {/* 카드 내용 영역 */}
-                <div className="p-5 flex-1 flex flex-col">
-                  <div className="text-[10px] font-bold text-indigo-500 uppercase tracking-tighter mb-1">{String(item.mgmtNum)}</div>
-                  <h3 className="font-bold text-gray-900 text-lg mb-2 truncate">{String(item.name)}</h3>
-                  
-                  {item.status === '사용중' && item.currentUser && (
-                    <div className="flex items-center gap-2 mb-4 p-2.5 bg-blue-50 rounded-xl border border-blue-100 animate-pulse-subtle">
-                      <User className="w-4 h-4 text-blue-500" />
-                      <span className="text-sm font-bold text-blue-900 truncate">{String(item.currentUser)} 사용 중</span>
+          viewMode === 'grid' ? (
+            /* 1. 카드 뷰 (Grid) */
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filtered.map(item => (
+                <div key={String(item.id)} className="bg-white rounded-3xl border border-gray-100 overflow-hidden shadow-sm hover:shadow-xl transition-all group flex flex-col">
+                  <div className="h-44 bg-gray-100 relative overflow-hidden">
+                    {item.imageUrl ? 
+                      <img src={String(item.imageUrl)} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt="" /> : 
+                      <div className="w-full h-full flex items-center justify-center text-gray-300"><ImageIcon className="w-12 h-12" /></div>
+                    }
+                    <div className="absolute top-3 left-3">
+                      <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest bg-white/90 shadow-sm border
+                        ${item.status === '대여가능' ? 'text-emerald-600 border-emerald-100' : 
+                          item.status === '사용중' ? 'text-blue-600 border-blue-100' : 'text-red-600 border-red-100'}`}>
+                        {String(item.status)}
+                      </span>
                     </div>
-                  )}
-
-                  <div className="mt-auto flex gap-2 pt-4">
-                    {item.status === '대여가능' ? (
-                      <button onClick={() => setCheckoutItem(item)} className="flex-1 bg-indigo-600 text-white py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-colors">
-                        <LogOut className="w-4 h-4 inline mr-2" /> 반출
-                      </button>
-                    ) : (
-                      <button onClick={() => handleStatusChange(item.id, '대여가능')} className="flex-1 bg-emerald-500 text-white py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-emerald-100 hover:bg-emerald-600 transition-colors">
-                        <LogIn className="w-4 h-4 inline mr-2" /> 반입 완료
-                      </button>
+                  </div>
+                  
+                  <div className="p-5 flex-1 flex flex-col">
+                    <div className="text-[10px] font-bold text-indigo-500 uppercase tracking-tighter mb-1">{String(item.mgmtNum)}</div>
+                    <h3 className="font-bold text-gray-900 text-lg mb-2 truncate">{String(item.name)}</h3>
+                    
+                    {item.status === '사용중' && item.currentUser && (
+                      <div className="flex items-center gap-2 mb-4 p-2.5 bg-blue-50 rounded-xl border border-blue-100 animate-pulse-subtle">
+                        <User className="w-4 h-4 text-blue-500" />
+                        <span className="text-sm font-bold text-blue-900 truncate">{String(item.currentUser)} 사용 중</span>
+                      </div>
                     )}
-                    <button onClick={() => { setEditingItem(item); setFormData(item); setIsModalOpen(true); }} className="p-2.5 border rounded-xl hover:bg-gray-50 transition-colors text-gray-500">
-                      <Edit className="w-4 h-4" />
-                    </button>
-                    <button onClick={() => setItemToDelete(item)} className="p-2.5 border rounded-xl text-red-500 hover:bg-red-50 transition-colors">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+
+                    <div className="mt-auto flex gap-2 pt-4">
+                      {item.status === '대여가능' ? (
+                        <button onClick={() => setCheckoutItem(item)} className="flex-1 bg-indigo-600 text-white py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-colors">
+                          <LogOut className="w-4 h-4 inline mr-2" /> 반출
+                        </button>
+                      ) : (
+                        <button onClick={() => handleStatusChange(item.id, '대여가능')} className="flex-1 bg-emerald-500 text-white py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-emerald-100 hover:bg-emerald-600 transition-colors">
+                          <LogIn className="w-4 h-4 inline mr-2" /> 반입 완료
+                        </button>
+                      )}
+                      <button onClick={() => { setEditingItem(item); setFormData(item); setIsModalOpen(true); }} className="p-2.5 border rounded-xl hover:bg-gray-50 transition-colors text-gray-500">
+                        <Edit className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => setItemToDelete(item)} className="p-2.5 border rounded-xl text-red-500 hover:bg-red-50 transition-colors">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 </div>
+              ))}
+            </div>
+          ) : (
+            /* 2. 관리대장 뷰 (List / Table) */
+            <div className="flex flex-col bg-white rounded-3xl border border-gray-200 shadow-sm overflow-hidden flex-1">
+              <div className="flex justify-between items-center p-5 border-b bg-gray-50/50">
+                <h2 className="font-bold text-gray-800 flex items-center gap-2"><List className="w-5 h-5 text-indigo-500"/> 장비 목록 대장</h2>
+                <button onClick={handleExportCSV} className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-emerald-100 hover:bg-emerald-700 transition-colors">
+                  <Download className="w-4 h-4"/> 엑셀 백업
+                </button>
               </div>
-            ))}
-          </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm whitespace-nowrap">
+                  <thead className="bg-gray-50 text-gray-500 font-bold border-b text-xs uppercase tracking-wider">
+                    <tr>
+                      <th className="p-4 pl-6">관리번호</th>
+                      <th className="p-4">카테고리</th>
+                      <th className="p-4">장비명</th>
+                      <th className="p-4">상태</th>
+                      <th className="p-4">현재 사용자</th>
+                      <th className="p-4">특이사항 (메모)</th>
+                      <th className="p-4 pr-6 text-center">관리</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {filtered.map(item => (
+                      <tr key={String(item.id)} className="hover:bg-indigo-50/30 transition-colors">
+                        <td className="p-4 pl-6 font-mono text-indigo-600 font-bold">{String(item.mgmtNum)}</td>
+                        <td className="p-4 text-gray-600 font-medium">{String(item.category)}</td>
+                        <td className="p-4 font-bold text-gray-900">{String(item.name)}</td>
+                        <td className="p-4">
+                           <span className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-widest border
+                              ${item.status === '대여가능' ? 'text-emerald-600 border-emerald-100 bg-emerald-50' : 
+                                item.status === '사용중' ? 'text-blue-600 border-blue-100 bg-blue-50' : 'text-red-600 border-red-100 bg-red-50'}`}>
+                              {String(item.status)}
+                            </span>
+                        </td>
+                        <td className="p-4 font-bold text-gray-700">{item.currentUser ? String(item.currentUser) : '-'}</td>
+                        <td className="p-4 text-gray-500 max-w-xs truncate" title={item.notes ? String(item.notes) : ''}>
+                          {item.notes ? String(item.notes) : '-'}
+                        </td>
+                        <td className="p-4 pr-6 text-center">
+                           <button onClick={() => { setEditingItem(item); setFormData(item); setIsModalOpen(true); }} className="p-1.5 text-gray-400 hover:text-indigo-600 transition-colors mx-1" title="수정">
+                             <Edit className="w-4 h-4" />
+                           </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )
         ) : (
-          <div className="py-32 text-center bg-white rounded-3xl border-2 border-dashed border-gray-200">
+          <div className="py-32 text-center bg-white rounded-3xl border-2 border-dashed border-gray-200 mt-4">
             <EmptyPackageIcon className="mx-auto w-12 h-12 text-gray-200 mb-4" />
-            <p className="text-gray-400 font-medium">검색된 장비가 없습니다.</p>
+            <p className="text-gray-400 font-medium">등록되거나 검색된 장비가 없습니다.</p>
           </div>
         )}
       </main>
 
-      {/* 등록 및 수정 모달 */}
+      {/* 등록/수정 모달 */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
@@ -450,13 +548,25 @@ export default function App() {
               </div>
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
-                  <input required placeholder="관리번호 (예: CAM-01)" value={formData.mgmtNum} onChange={e=>setFormData({...formData, mgmtNum: e.target.value})} className="border p-3 rounded-xl outline-none focus:border-indigo-500 transition-all font-bold text-sm" />
-                  <select value={formData.category} onChange={e=>setFormData({...formData, category: e.target.value})} className="border p-3 rounded-xl outline-none bg-white font-bold text-sm">
-                    {CATEGORIES.filter(c=>c.name!=='전체').map(c=><option key={c.name}>{String(c.name)}</option>)}
-                  </select>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 ml-1">관리번호</label>
+                    <input required placeholder="예: CAM-01" value={formData.mgmtNum} onChange={e=>setFormData({...formData, mgmtNum: e.target.value})} className="w-full border p-3 rounded-xl outline-none focus:border-indigo-500 transition-all font-bold text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 ml-1">카테고리</label>
+                    <select value={formData.category} onChange={e=>setFormData({...formData, category: e.target.value})} className="w-full border p-3 rounded-xl outline-none bg-white font-bold text-sm">
+                      {CATEGORIES.filter(c=>c.name!=='전체').map(c=><option key={c.name}>{String(c.name)}</option>)}
+                    </select>
+                  </div>
                 </div>
-                <input required placeholder="장비 이름 (모델명)" value={formData.name} onChange={e=>setFormData({...formData, name: e.target.value})} className="w-full border p-3 rounded-xl outline-none focus:border-indigo-500 transition-all font-bold" />
-                <textarea placeholder="특이사항 및 메모" value={formData.notes} onChange={e=>setFormData({...formData, notes: e.target.value})} className="w-full border p-3 rounded-xl outline-none focus:border-indigo-500 transition-all text-sm h-24 resize-none" />
+                <div>
+                   <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 ml-1">장비명</label>
+                   <input required placeholder="장비 이름 (모델명)" value={formData.name} onChange={e=>setFormData({...formData, name: e.target.value})} className="w-full border p-3 rounded-xl outline-none focus:border-indigo-500 transition-all font-bold" />
+                </div>
+                <div>
+                   <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 ml-1">특이사항 (메모)</label>
+                   <textarea placeholder="특이사항 및 메모" value={formData.notes} onChange={e=>setFormData({...formData, notes: e.target.value})} className="w-full border p-3 rounded-xl outline-none focus:border-indigo-500 transition-all text-sm h-24 resize-none" />
+                </div>
               </div>
               <button type="submit" disabled={isUploadingImage} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold text-base shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all disabled:bg-gray-300">저장 완료</button>
             </form>
