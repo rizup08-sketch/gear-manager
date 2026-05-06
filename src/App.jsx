@@ -22,7 +22,9 @@ import {
   History,
   Loader2,
   Wifi,
-  WifiOff
+  WifiOff,
+  List,
+  Download
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -145,6 +147,7 @@ export default function App() {
   
   const [activeCategory, setActiveCategory] = useState('전체');
   const [searchQuery, setSearchQuery] = useState('');
+  const [viewMode, setViewMode] = useState('grid');
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
@@ -189,7 +192,6 @@ export default function App() {
     const equipRef = collection(db, 'artifacts', DB_APP_ID, 'public', 'data', 'equipment');
     const unsubEquip = onSnapshot(equipRef, (snapshot) => {
       const data = snapshot.docs.map(doc => doc.data());
-      data.sort((a, b) => Number(b.id) - Number(a.id));
       setEquipmentList(data);
       setIsConnected(true);
     }, (err) => {
@@ -213,6 +215,37 @@ export default function App() {
       unsubLogs();
     };
   }, [user]);
+
+  // 백업 기능: 엑셀(CSV) 다운로드 함수
+  const handleExportCSV = () => {
+    const BOM = "\uFEFF";
+    const headers = ['관리번호', '카테고리', '장비명', '상태', '현재사용자', '특이사항(메모)'];
+    
+    const csvRows = [headers.join(',')];
+
+    filteredEquipment.forEach(item => {
+      const row = [
+        `"${String(item.mgmtNum).toLowerCase().replace(/"/g, '""')}"`,
+        `"${String(item.category).replace(/"/g, '""')}"`,
+        `"${String(item.name).replace(/"/g, '""')}"`,
+        `"${String(item.status).replace(/"/g, '""')}"`,
+        `"${String(item.currentUser || '').replace(/"/g, '""')}"`,
+        `"${String(item.notes || '').replace(/"/g, '""')}"`
+      ];
+      csvRows.push(row.join(','));
+    });
+
+    const csvContent = BOM + csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `장비관리대장_${formatDate(new Date()).replace(/[:. ]/g, '_')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   // Cloudinary 이미지 압축 및 업로드
   const handleImageUpload = async (e) => {
@@ -361,13 +394,19 @@ export default function App() {
     setIsModalOpen(true);
   };
 
+  // 장비 필터링 및 관리번호(mgmtNum) 순 정렬
   const filteredEquipment = useMemo(() => {
-    return equipmentList.filter(item => {
+    const filtered = equipmentList.filter(item => {
       const matchCategory = activeCategory === '전체' || item.category === activeCategory;
       const matchSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
                           item.mgmtNum.toLowerCase().includes(searchQuery.toLowerCase());
       return matchCategory && matchSearch;
     });
+
+    // 숫자 값을 인식하여 자연스러운 순서로 오름차순 정렬 (예: cam-2가 cam-10보다 앞으로 오도록 처리)
+    return filtered.sort((a, b) => 
+      String(a.mgmtNum).toLowerCase().localeCompare(String(b.mgmtNum).toLowerCase(), undefined, { numeric: true, sensitivity: 'base' })
+    );
   }, [equipmentList, activeCategory, searchQuery]);
 
   if (loading) {
@@ -423,15 +462,32 @@ export default function App() {
 
       <main className="flex-1 max-w-6xl mx-auto px-4 py-6 w-full">
         <div className="mb-6 space-y-4">
-          <div className="relative group">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-indigo-500 transition-colors" />
-            <input 
-              type="text" 
-              placeholder="장비명 또는 관리번호로 검색하세요" 
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-12 pr-4 py-3.5 rounded-2xl border border-gray-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all shadow-sm bg-white"
-            />
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
+            <div className="relative group flex-1 w-full max-w-xl">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-indigo-500 transition-colors" />
+              <input 
+                type="text" 
+                placeholder="장비명 또는 관리번호로 검색하세요" 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-12 pr-4 py-3.5 rounded-2xl border border-gray-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all shadow-sm bg-white"
+              />
+            </div>
+            
+            <div className="flex items-center bg-gray-200/60 p-1.5 rounded-2xl w-full sm:w-auto">
+              <button 
+                onClick={() => setViewMode('grid')} 
+                className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${viewMode === 'grid' ? 'bg-white shadow-md text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                <LayoutGrid className="w-4 h-4"/> 카드 뷰
+              </button>
+              <button 
+                onClick={() => setViewMode('list')} 
+                className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${viewMode === 'list' ? 'bg-white shadow-md text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                <List className="w-4 h-4"/> 관리대장
+              </button>
+            </div>
           </div>
 
           <div className="flex overflow-x-auto pb-2 gap-2 scrollbar-hide touch-pan-x">
@@ -456,87 +512,138 @@ export default function App() {
         </div>
 
         {filteredEquipment.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredEquipment.map((item) => (
-              <div key={item.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-xl transition-all group flex flex-col relative">
-                <div className="h-44 w-full bg-gray-100 relative overflow-hidden shrink-0 flex items-center justify-center">
-                  {item.imageUrl ? (
-                    <img 
-                      src={item.imageUrl} 
-                      alt={item.name} 
-                      onClick={() => setEnlargedImage(item.imageUrl)}
-                      className="w-full h-full object-contain cursor-pointer group-hover:scale-105 transition-transform duration-500 p-2" 
-                    />
-                  ) : (
-                    <div className="flex items-center justify-center w-full h-full text-gray-300 bg-gradient-to-br from-gray-50 to-gray-100">
-                      <ImageIcon className="w-12 h-12" />
+          viewMode === 'grid' ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredEquipment.map((item) => (
+                <div key={item.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-xl transition-all group flex flex-col relative">
+                  <div className="h-44 w-full bg-gray-100 relative overflow-hidden shrink-0 flex items-center justify-center">
+                    {item.imageUrl ? (
+                      <img 
+                        src={item.imageUrl} 
+                        alt={item.name} 
+                        onClick={() => setEnlargedImage(item.imageUrl)}
+                        className="w-full h-full object-contain cursor-pointer group-hover:scale-105 transition-transform duration-500 p-2" 
+                      />
+                    ) : (
+                      <div className="flex items-center justify-center w-full h-full text-gray-300 bg-gradient-to-br from-gray-50 to-gray-100">
+                        <ImageIcon className="w-12 h-12" />
+                      </div>
+                    )}
+                    <div className="absolute top-3 left-3">
+                      <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest border bg-white/90 backdrop-blur-sm shadow-sm
+                        ${item.status === '대여가능' ? 'text-emerald-600 border-emerald-200' : 
+                          item.status === '사용중' ? 'text-blue-600 border-blue-200' : 'text-red-600 border-red-200'}`}>
+                        {item.status}
+                      </span>
                     </div>
-                  )}
-                  <div className="absolute top-3 left-3">
-                    <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest border bg-white/90 backdrop-blur-sm shadow-sm
-                      ${item.status === '대여가능' ? 'text-emerald-600 border-emerald-200' : 
-                        item.status === '사용중' ? 'text-blue-600 border-blue-200' : 'text-red-600 border-red-200'}`}>
-                      {item.status}
-                    </span>
+                    <div className="absolute top-3 right-3 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => openEditModal(item)} className="p-2 bg-white/90 backdrop-blur-sm rounded-full text-gray-600 hover:text-indigo-600 shadow-sm transition-colors">
+                        <Edit className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => setItemToDelete(item)} className="p-2 bg-white/90 backdrop-blur-sm rounded-full text-gray-600 hover:text-red-600 shadow-sm transition-colors">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
-                  <div className="absolute top-3 right-3 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => openEditModal(item)} className="p-2 bg-white/90 backdrop-blur-sm rounded-full text-gray-600 hover:text-indigo-600 shadow-sm transition-colors">
-                      <Edit className="w-4 h-4" />
-                    </button>
-                    <button onClick={() => setItemToDelete(item)} className="p-2 bg-white/90 backdrop-blur-sm rounded-full text-gray-600 hover:text-red-600 shadow-sm transition-colors">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+
+                  <div className="p-5 flex-1 flex flex-col">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-lg sm:text-xl font-black text-indigo-600 tracking-tight bg-indigo-50 px-3 py-1.5 rounded-md border border-indigo-100">
+                        {String(item.mgmtNum).toLowerCase()}
+                      </span>
+                      <span className="text-xs text-gray-400 font-medium">{item.category}</span>
+                    </div>
+                    <h3 className="text-base font-bold text-gray-900 mb-3 truncate">{item.name}</h3>
+                    
+                    {item.status === '사용중' && item.currentUser && (
+                      <div className="bg-blue-50/50 border border-blue-100 rounded-xl px-3 py-2.5 flex items-center gap-2 mb-4 animate-pulse-subtle">
+                        <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center">
+                          <User className="w-3.5 h-3.5 text-blue-600" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-blue-500 font-bold uppercase tracking-tight">현재 대여자</p>
+                          <p className="text-sm font-bold text-blue-900 leading-none">{item.currentUser}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {item.notes && !item.currentUser && (
+                      <p className="text-xs text-gray-500 line-clamp-2 mb-4 min-h-[2rem] bg-gray-50 p-2 rounded-lg italic">
+                        "{item.notes}"
+                      </p>
+                    )}
+
+                    <div className="mt-auto pt-4 flex gap-2">
+                      {item.status === '대여가능' && (
+                        <button onClick={() => setCheckoutItem(item)} className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 text-white py-2.5 rounded-xl font-bold hover:bg-indigo-700 transition-all text-xs">
+                          <LogOut className="w-4 h-4" /> 반출하기
+                        </button>
+                      )}
+                      {item.status === '사용중' && (
+                        <button onClick={() => handleStatusChange(item.id, '대여가능')} className="flex-1 flex items-center justify-center gap-2 bg-emerald-500 text-white py-2.5 rounded-xl font-bold hover:bg-emerald-600 transition-all text-xs">
+                          <LogIn className="w-4 h-4" /> 반입 완료
+                        </button>
+                      )}
+                      {item.status === '수리중' && (
+                        <button onClick={() => handleStatusChange(item.id, '대여가능')} className="flex-1 flex items-center justify-center gap-2 bg-gray-800 text-white py-2.5 rounded-xl font-bold hover:bg-black transition-all text-xs">
+                          <CheckCircle2 className="w-4 h-4" /> 수리 완료
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
-
-                <div className="p-5 flex-1 flex flex-col">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-tighter bg-indigo-50 px-2 py-0.5 rounded">
-                      {item.mgmtNum}
-                    </span>
-                    <span className="text-[10px] text-gray-400 font-medium">{item.category}</span>
-                  </div>
-                  <h3 className="text-base font-bold text-gray-900 mb-3 truncate">{item.name}</h3>
-                  
-                  {item.status === '사용중' && item.currentUser && (
-                    <div className="bg-blue-50/50 border border-blue-100 rounded-xl px-3 py-2.5 flex items-center gap-2 mb-4 animate-pulse-subtle">
-                      <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center">
-                        <User className="w-3.5 h-3.5 text-blue-600" />
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-blue-500 font-bold uppercase tracking-tight">현재 대여자</p>
-                        <p className="text-sm font-bold text-blue-900 leading-none">{item.currentUser}</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {item.notes && !item.currentUser && (
-                    <p className="text-xs text-gray-500 line-clamp-2 mb-4 min-h-[2rem] bg-gray-50 p-2 rounded-lg italic">
-                      "{item.notes}"
-                    </p>
-                  )}
-
-                  <div className="mt-auto pt-4 flex gap-2">
-                    {item.status === '대여가능' && (
-                      <button onClick={() => setCheckoutItem(item)} className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 text-white py-2.5 rounded-xl font-bold hover:bg-indigo-700 transition-all text-xs">
-                        <LogOut className="w-4 h-4" /> 반출하기
-                      </button>
-                    )}
-                    {item.status === '사용중' && (
-                      <button onClick={() => handleStatusChange(item.id, '대여가능')} className="flex-1 flex items-center justify-center gap-2 bg-emerald-500 text-white py-2.5 rounded-xl font-bold hover:bg-emerald-600 transition-all text-xs">
-                        <LogIn className="w-4 h-4" /> 반입 완료
-                      </button>
-                    )}
-                    {item.status === '수리중' && (
-                      <button onClick={() => handleStatusChange(item.id, '대여가능')} className="flex-1 flex items-center justify-center gap-2 bg-gray-800 text-white py-2.5 rounded-xl font-bold hover:bg-black transition-all text-xs">
-                        <CheckCircle2 className="w-4 h-4" /> 수리 완료
-                      </button>
-                    )}
-                  </div>
-                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col bg-white rounded-3xl border border-gray-200 shadow-sm overflow-hidden flex-1">
+              <div className="flex justify-between items-center p-5 border-b bg-gray-50/50">
+                <h2 className="font-bold text-gray-800 flex items-center gap-2"><List className="w-5 h-5 text-indigo-500"/> 장비 목록 대장</h2>
+                <button onClick={handleExportCSV} className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-emerald-100 hover:bg-emerald-700 transition-colors">
+                  <Download className="w-4 h-4"/> 엑셀 백업
+                </button>
               </div>
-            ))}
-          </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm whitespace-nowrap">
+                  <thead className="bg-gray-50 text-gray-500 font-bold border-b text-xs uppercase tracking-wider">
+                    <tr>
+                      <th className="p-4 pl-6">관리번호</th>
+                      <th className="p-4">카테고리</th>
+                      <th className="p-4">장비명</th>
+                      <th className="p-4">상태</th>
+                      <th className="p-4">현재 사용자</th>
+                      <th className="p-4">특이사항 (메모)</th>
+                      <th className="p-4 pr-6 text-center">관리</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {filteredEquipment.map(item => (
+                      <tr key={String(item.id)} className="hover:bg-indigo-50/30 transition-colors">
+                        <td className="p-4 pl-6 font-mono text-indigo-600 font-black text-sm">{String(item.mgmtNum).toLowerCase()}</td>
+                        <td className="p-4 text-gray-600 font-medium">{String(item.category)}</td>
+                        <td className="p-4 font-bold text-gray-900">{String(item.name)}</td>
+                        <td className="p-4">
+                           <span className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-widest border
+                              ${item.status === '대여가능' ? 'text-emerald-600 border-emerald-100 bg-emerald-50' : 
+                                item.status === '사용중' ? 'text-blue-600 border-blue-100 bg-blue-50' : 'text-red-600 border-red-100 bg-red-50'}`}>
+                              {String(item.status)}
+                            </span>
+                        </td>
+                        <td className="p-4 font-bold text-gray-700">{item.currentUser ? String(item.currentUser) : '-'}</td>
+                        <td className="p-4 text-gray-500 max-w-xs truncate" title={item.notes ? String(item.notes) : ''}>
+                          {item.notes ? String(item.notes) : '-'}
+                        </td>
+                        <td className="p-4 pr-6 text-center">
+                           <button onClick={() => openEditModal(item)} className="p-1.5 text-gray-400 hover:text-indigo-600 transition-colors mx-1" title="수정">
+                             <Edit className="w-4 h-4" />
+                           </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )
         ) : (
           <div className="text-center py-24 bg-white rounded-3xl border-2 border-dashed border-gray-200">
             <div className="bg-gray-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -583,7 +690,7 @@ export default function App() {
                           </td>
                           <td className="px-6 py-4">
                             <p className="font-bold text-gray-900">{log.equipmentName}</p>
-                            <p className="text-[10px] text-gray-400 font-mono mt-0.5">{log.mgmtNum}</p>
+                            <p className="text-[10px] text-gray-500 font-bold mt-0.5">{String(log.mgmtNum).toLowerCase()}</p>
                           </td>
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-2">
@@ -691,7 +798,7 @@ export default function App() {
             <form onSubmit={handleCheckoutSubmit} className="p-6 space-y-6">
               <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-2xl">
                 <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">반출 장비 정보</p>
-                <p className="text-base font-bold text-indigo-900 leading-tight">[{checkoutItem.mgmtNum}] {checkoutItem.name}</p>
+                <p className="text-base font-bold text-indigo-900 leading-tight">[{String(checkoutItem.mgmtNum).toLowerCase()}] {checkoutItem.name}</p>
               </div>
               <div>
                 <label className="block text-[11px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">장비를 빌려가는 분의 성함 *</label>
@@ -714,7 +821,7 @@ export default function App() {
               <AlertTriangle className="w-8 h-8 text-red-500" />
             </div>
             <h3 className="text-xl font-bold text-gray-900 mb-2">장비 삭제</h3>
-            <p className="text-sm text-gray-400 leading-relaxed mb-6 font-medium">[{itemToDelete.mgmtNum}] {itemToDelete.name}를 목록에서 삭제하시겠습니까? 데이터는 복구되지 않습니다.</p>
+            <p className="text-sm text-gray-400 leading-relaxed mb-6 font-medium">[{String(itemToDelete.mgmtNum).toLowerCase()}] {itemToDelete.name}를 목록에서 삭제하시겠습니까? 데이터는 복구되지 않습니다.</p>
             <div className="flex gap-3">
               <button onClick={() => setItemToDelete(null)} className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-colors">취소</button>
               <button onClick={confirmDelete} className="flex-1 py-3 bg-red-500 text-white rounded-xl font-bold hover:bg-red-600 transition-colors shadow-lg shadow-red-100">삭제</button>
