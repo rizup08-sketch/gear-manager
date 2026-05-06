@@ -439,7 +439,7 @@ export default function App() {
                   </div>
                   
                   <div className="p-5 flex-1 flex flex-col">
-                    <div className="text-[10px] font-bold text-indigo-500 uppercase tracking-tighter mb-1">{String(item.mgmtNum)}</div>
+                    <div className="text-sm font-black text-indigo-600 tracking-tight mb-1.5">{String(item.mgmtNum).toLowerCase()}</div>
                     <h3 className="font-bold text-gray-900 text-lg mb-2 truncate">{String(item.name)}</h3>
                     
                     {item.status === '사용중' && item.currentUser && (
@@ -495,7 +495,7 @@ export default function App() {
                   <tbody className="divide-y divide-gray-100">
                     {filtered.map(item => (
                       <tr key={String(item.id)} className="hover:bg-indigo-50/30 transition-colors">
-                        <td className="p-4 pl-6 font-mono text-indigo-600 font-bold">{String(item.mgmtNum)}</td>
+                        <td className="p-4 pl-6 font-mono text-indigo-600 font-bold text-sm">{String(item.mgmtNum).toLowerCase()}</td>
                         <td className="p-4 text-gray-600 font-medium">{String(item.category)}</td>
                         <td className="p-4 font-bold text-gray-900">{String(item.name)}</td>
                         <td className="p-4">
@@ -579,7 +579,7 @@ export default function App() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <form onSubmit={handleCheckoutSubmit} className="bg-white rounded-3xl w-full max-w-sm p-6 space-y-6 shadow-2xl animate-in zoom-in-95 duration-200">
             <h2 className="font-bold text-xl text-gray-900">장비 반출 승인</h2>
-            <div className="bg-indigo-50 border p-4 rounded-2xl text-indigo-900 font-bold">[{String(checkoutItem.mgmtNum)}] {String(checkoutItem.name)}</div>
+            <div className="bg-indigo-50 border p-4 rounded-2xl text-indigo-900 font-bold">[{String(checkoutItem.mgmtNum).toLowerCase()}] {String(checkoutItem.name)}</div>
             <div className="space-y-2">
               <label className="text-xs font-bold text-gray-400 ml-1">대여자 성함 *</label>
               <input required autoFocus placeholder="이름을 입력하세요" value={checkoutUser} onChange={e=>setCheckoutUser(e.target.value)} className="w-full border p-4 rounded-2xl outline-none focus:border-indigo-500 font-bold bg-gray-50" />
@@ -600,7 +600,7 @@ export default function App() {
               <AlertTriangle className="text-red-500 w-8 h-8" />
             </div>
             <h3 className="font-bold text-xl mb-2">정말 삭제하시겠습니까?</h3>
-            <p className="text-sm text-gray-400 mb-8 font-medium">[{String(itemToDelete.mgmtNum)}] {String(itemToDelete.name)}가 목록에서 영구적으로 삭제됩니다.</p>
+            <p className="text-sm text-gray-400 mb-8 font-medium">[{String(itemToDelete.mgmtNum).toLowerCase()}] {String(itemToDelete.name)}가 목록에서 영구적으로 삭제됩니다.</p>
             <div className="flex gap-3">
               <button onClick={()=>setItemToDelete(null)} className="flex-1 border py-3 rounded-xl font-bold hover:bg-gray-50">취소</button>
               <button onClick={async () => { await deleteDoc(doc(db, 'artifacts', sanitizedAppId, 'public', 'data', 'equipment', String(itemToDelete.id))); setItemToDelete(null); }} className="flex-1 bg-red-500 text-white py-3 rounded-xl font-bold shadow-lg shadow-red-100">삭제</button>
@@ -638,7 +638,7 @@ export default function App() {
                           </td>
                           <td className="px-6 py-4">
                             <div className="font-bold text-gray-900">{String(l.equipmentName)}</div>
-                            <div className="text-[10px] text-gray-400 font-mono">{String(l.mgmtNum)}</div>
+                            <div className="text-[10px] text-gray-400 font-mono">{String(l.mgmtNum).toLowerCase()}</div>
                           </td>
                           <td className="px-6 py-4 font-bold text-gray-700">{String(l.userName)}</td>
                           <td className="px-6 py-4 text-[10px] text-gray-500 leading-relaxed font-medium">
