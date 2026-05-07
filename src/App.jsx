@@ -779,6 +779,11 @@ export default function App() {
                 )}
               </div>
 
+              <div>
+                <label className="block text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">특이사항 (메모)</label>
+                <textarea value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})} placeholder="장비의 상태나 특이사항을 자유롭게 적어주세요." className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all text-sm font-medium h-24 resize-none bg-white"></textarea>
+              </div>
+
               <button type="submit" disabled={isUploadingImage} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 mt-2 disabled:bg-indigo-300 disabled:cursor-not-allowed">
                 {editingItem ? '정보 수정하기' : '장비 등록 완료'}
               </button>
